@@ -4,14 +4,14 @@ const socketio = require("socket.io");
 const io;
 var guestNumber = 1;
 var nickNames = {};
-var nameUsed = [];
-var currentName = {};
+var namesUsed = [];
+var currentRoom= {};
 
 exports.listen = function(server){
-    io = io.listen(server);
+    io = socketio.listen(server);
     io.set("log level", 1);
     io.sockets.on("connection", function(socket){
-        guestNumber = assignGuestName(socket, guestNumber, nickNames, nameUsed);
+        guestNumber = assignGuestName(socket, guestNumber, nickNames, namesUsed);
         joinRoom(socket, "Lobby");
     })
 }
@@ -23,7 +23,7 @@ function assignGuestName(socket, guestNumber, nickNames, nameUsed){
         sucess: true,
         name: name
     });
-    nameUsed.push(name);
+    namesUsed.push(name);
     return guestNumber + 1
 };
 
@@ -57,7 +57,50 @@ function handleNameChangeAttempts(socket, nickNames, nameUsed){
             socket.emit("nameResult", {
                 sucess: false,
                 message: "Names cannot begin with 'Guest'"
+            });
+        }else{
+            if(namesUsed.indexOf(name) == -1){
+                var previousName = nickNames[socket.id];
+                var previousNameIndex = namesUsed.indexOf(previousName)
+                namesUsed.push(name);
+                nickNames[socket.id] = name;
+                delete nameUsed[previousNameIndex];
+            socket.emit("nameResult",{
+                sucess: true,
+                name: name
+            });
+            socket.broadcast.to(currentRoom[socket.id]).emit("message", {
+                text: previousName + "is now Known as" + name + "."
+            });
+            }else{
+                socket.emit("nameResult", {
+                    sucess: false,
+                    message: "that name is already in use"
+                })
+            }
+        }
+    })
+};
+
+function handleMessageBroadcasting(socket){
+    socket.on("message", function(message){
+        socket.broadcast.to(message.room).emit("message",{
+            text: nickNames[socket.id] + ":" + message.text
         });
-    }
-})
+    });
 }
+
+function handleRoomJoining(socket){
+    socket.on("join", function(room){
+        socket.leave(currentRoom[socket.id]);
+        joinRoom(socket, room.newRoom)
+    })
+}
+
+function handleClientDisconnection(socket){
+    socket.on("disconnect", function(){
+        var nameIndex = namesUsed.indexOf(nickNames[socket.id]);
+        delete namesUsed[nameIndex]
+        delete nickNames[socket.id]
+    });
+};
